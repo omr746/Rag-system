@@ -21,7 +21,7 @@ class CohereProvider(LLMInterface):
     def set_generation_model(self, model_id):
         self.generation_model_id=model_id
     def  set_embedding_model(self, model_id,embedding_size):
-        self.set_embedding_model=model_id
+        self.embedding_model_id=model_id
         self.embedding_size=embedding_size
 
     def generate_text(self, prompt,chat_history, max_output_tokens=None, temperature = None):
