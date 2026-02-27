@@ -14,6 +14,7 @@ class CohereProvider(LLMInterface):
         self.generation_model_id=None
         self.embedding_model_id=None
         self.embedding_size=None
+        self.enums=CohereEnums
         self.client=cohere.Client(
             api_key=self.api_key
         )
@@ -77,4 +78,4 @@ class CohereProvider(LLMInterface):
              "text":self.process_text(prompt)
          }
     def process_text(self,text:str):
-        return text[:self.default_input_max_characters].strip() 
+        return text.strip() 

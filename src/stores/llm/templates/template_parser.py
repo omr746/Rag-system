@@ -15,5 +15,20 @@ class TemplateParser:
     def get(self,group:str,key:str,vars:dict={}):
         if not group or not key:
             return None
+        group_path=os.path.join(self.current_path,"locales",self.lang,f"{group}.py")
+        target_lang=self.lang
+        if not os.path.exists(group_path):
+             group_path=os.path.join(self.current_path,"locales",self.default_lang,f"{group}.py")
+             target_lang=self.default_lang
+        if not os.path.exists(group_path):
+            return None
+        
+        module=__import__ (f"stores.llm.templates.locales.{target_lang}.{group}",fromlist={group})
+        if not module:
+            return None
+        key_attribute=getattr(module,key)
+        return key_attribute.substitute(vars)
+
+
 
 
