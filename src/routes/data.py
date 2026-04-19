@@ -137,7 +137,7 @@ async def process_endpoint(request:Request,project_id:str,process_request:Proces
 
 
 
-        file_chunks=process_controller.process_file_content(
+        file_chunks=process_controller.process_file_content2(
             file_content=file_content,
             file_id=file_id,
             chunk_size=chunk_size,

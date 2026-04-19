@@ -3,9 +3,12 @@ from fastapi.responses import JSONResponse
 from routes.schemes.nlp import PushRequest,SearchRequest
 from models.ProjectModel import ProjectModel
 from models.ChunkModel import ChunkModel
+from models.MachineLogModel import MachineLogModel
 from controllers import NLPController
 from models import ResponseSignal
 import logging
+import json
+import re
 
 logger=logging.getLogger('uvicorn.error')
 nlp_router=APIRouter(
@@ -173,6 +176,87 @@ async def answer_rag(request:Request,project_id:str,search_request:SearchRequest
                  "chat_history":chat_history
             }
       )
+@nlp_router.post("/index/answer2/{project_id}")
+async def answer_rag2(request:Request,project_id:str,search_request:SearchRequest):
+      project_model=await ProjectModel.create_instance(db_client=request.app.db_client)
+      project=await project_model.get_project_or_create_one(
+        project_id=project_id
+    )
+      machine_log_model = await MachineLogModel.create_instance(
+        db_client=request.app.db_client
+    )
+      page_no = 1
+      log_records = []
+
+      while True:
+        page_logs = await machine_log_model.get_machine_project_logs(
+            project_id=project.id,
+            page_no=page_no
+        )
+
+        if not page_logs:
+            break
+
+        log_records.extend(page_logs)
+        page_no += 1
+      
+      if not project:
+         return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "signal":ResponseSignal.PROJECT_NOT_FOUND_ERROR.value
+            }
+        )
+    
+      nlp_controller=NLPController(
+         vectordb_client=request.app.vectordb_client,
+         generation_client=request.app.generation_client,
+         embedding_client=request.app.embedding_client,
+         template_parser=request.app.template_parser
+         
+    )
+      answer,full_prompt,chat_history=nlp_controller.answer_rag_question2(project=project,logs=log_records,
+                                                                          
+                                                                        query=search_request.text,limit=search_request.limit)
+      if not answer:
+             return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "signal":ResponseSignal.RAG_ANSWER_ERROR.value
+            }
+        )
+      json_match = re.search(r'(\{.*\})', answer, re.DOTALL)
+
+      if json_match:
+        try:
+            # تنظيف الـ JSON من أي كلمات زائدة قبل أو بعد الأقواس
+            full_json_str = json_match.group(1)
+            fixed_json_str = re.sub(r"'(.*?)'", r'"\1"', full_json_str)
+            parsed_answer = json.loads(fixed_json_str)
+        except json.JSONDecodeError:
+            parsed_answer = {"error": "Parsing failed", "raw": answer}
+      else:
+        # --- خطة البديلة: استخراج البيانات من النص المنظم ---
+        # إذا لم يرسل الموديل JSON، نقوم بسحب القيم الهامة باستخدام Regex
+        status_match = re.search(r"state with a \*\*(.*?)\*\*", answer)
+        pattern_match = re.search(r"Historical Case:\s*\*\*(.*?)\*\*", answer)
+        confidence_match = re.search(r"Confidence Score:\s*([\d\.]+)", answer)
+
+        parsed_answer = {
+            "status": status_match.group(1) if status_match else "Unknown",
+            "detected_pattern": pattern_match.group(1) if pattern_match else "Unknown",
+            "confidence_score": float(confidence_match.group(1)) if confidence_match else 0.0,
+            "raw_text": answer,
+            "is_parsed_from_text": True
+        }
+      return JSONResponse(
+            content={
+                "signal": ResponseSignal.RAG_ANSWER_SUCCESS.value,
+                "answer": parsed_answer, # Now a real JSON object/dict
+                "full_prompt": full_prompt,
+                "chat_history": chat_history
+            }
+        )
     
 
       

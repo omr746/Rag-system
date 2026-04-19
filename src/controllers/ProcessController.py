@@ -3,6 +3,7 @@ from .ProjectController import ProjectController
 import os
 from langchain_community.document_loaders import TextLoader
 from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_community.document_loaders import JSONLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from models import ProcessingEnum
 
@@ -26,6 +27,12 @@ class ProcessController(BaseController):
             return TextLoader(file_path,encoding="utf-8")
         if file_ext == ProcessingEnum.PDF.value:
             return PyMuPDFLoader(file_path)
+        if file_ext == ProcessingEnum.JSON.value:
+            return JSONLoader(
+            file_path=file_path,
+            jq_schema=".",
+            text_content=False
+          )
         return None
     def get_file_content(self,file_id:str):
         loader= self.get_file_loader(file_id=file_id)
@@ -52,4 +59,47 @@ class ProcessController(BaseController):
             file_content_texts,
             metadatas=file_content_metadata
         )
+        return chunks
+    def process_file_content2(self, file_content: list,
+                          file_id: str, chunk_size: int = 100, overlap_size: int = 20):
+        import json
+        from langchain.schema import Document
+
+        chunks = []
+
+        for rec in file_content:
+            try:
+                parsed   = json.loads(rec.page_content)
+                patterns = parsed if isinstance(parsed, list) else [parsed]
+
+                for pattern in patterns:
+                    if "historical_pattern_id" not in pattern:
+                        continue
+                    if not pattern.get("window_data") or len(pattern["window_data"]) < 5:
+                        continue
+
+                    narrative = logs_to_embedding_text(
+                        window_data  = pattern["window_data"],
+                        label        = pattern.get("label"),
+                        failure_type = pattern.get("failure_type"),
+                        machine_id   = pattern.get("machine_project_id"),
+                    )
+
+                    chunks.append(Document(
+                        page_content=narrative,
+                        metadata={
+                            **rec.metadata,
+                            "file_id":      file_id,
+                            "pattern_id":   pattern["historical_pattern_id"],
+                            "machine_id":   pattern["machine_project_id"],
+                            "label":        pattern.get("label", "UNKNOWN"),
+                            "failure_type": pattern.get("failure_type", "NONE"),
+                            "analysis":     pattern.get("analysis", ""),
+                        }
+                    ))
+
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"[SKIP] unparseable record in file {file_id}: {e}")
+                continue
+
         return chunks
